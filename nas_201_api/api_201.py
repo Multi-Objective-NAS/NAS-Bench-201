@@ -17,6 +17,7 @@ from collections import OrderedDict, defaultdict
 from .api_utils import ArchResults
 from .api_utils import NASBenchMetaAPI
 from .api_utils import remap_dataset_set_names
+from nasbench.lib import graph_util
 
 
 ALL_BENCHMARK_FILES = ['NAS-Bench-201-v1_0-e61699.pth', 'NAS-Bench-201-v1_1-096897.pth']
@@ -96,9 +97,16 @@ class NASBench201API(NASBenchMetaAPI):
             modelspec = ModelSpec(arch, idx)
             hash_val = modelspec.hash_spec()
             self.hash2modelspec[hash_val] = modelspec
-            
+		self.search_space = [ 'input', 'skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3', 'output']
+        
         self.total_time = 0
         self.total_epochs = 0 # implement yet
+    
+    def get_modelspec(self, matrix, ops):
+        search_space = [ 'input', 'skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3', 'output']
+        labeling = [-1] + [search_space.index(op) for op in ops[1:-1]] + [-2]
+		hash_val = graph_util.hash_module(matrix, labeling)
+        return hash2modelspec[hash_val]
     
     def hash_iterator(self):
         return self.hash2modelspec.keys()

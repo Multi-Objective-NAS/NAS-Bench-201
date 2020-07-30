@@ -1,6 +1,7 @@
 import copy
 
 from nasbench.lib import graph_util
+from collections import defaultdict
 import numpy as np
 
 # Graphviz is optional and only required for visualization.
@@ -12,7 +13,7 @@ except ImportError:
 
 class ModelSpec(object):
 	"""Model specification given adjacency matrix and labeling."""
-
+    
 	def __init__(self, index, model_str, data_format='channels_last'):
 		"""Initialize the module spec.
 
@@ -27,16 +28,16 @@ class ModelSpec(object):
 		Raises:
 			ValueError: invalid matrix or ops
 		"""
-        self.index = index
-        self.model_str = model_str
+		self.index = index
+		self.model_str = model_str
 		self.matrix, self.ops = self._convert_to_matrix_ops(model_str)
 		self.valid_spec = True
-        self.search_space = [ 'none', 'skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
+		self.search_space = [ 'input', 'skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3', 'output']
 		self._prune()
 
 		self.data_format = data_format
         
-        if not isinstance(matrix, np.ndarray):
+		if not isinstance(matrix, np.ndarray):
 			matrix = np.array(matrix)
 		shape = np.shape(matrix)
 		if len(shape) != 2 or shape[0] != shape[1]:
@@ -46,10 +47,17 @@ class ModelSpec(object):
 		if not is_upper_triangular(matrix):
 			raise ValueError('matrix must be upper triangular')
     
-    def _convert_to_matrix_ops(self, model_str):
-        node_strs = arch_str.split('+')
+	def _convert_to_matrix_ops(self, model_str):
+		search_space = [ 'none', 'skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
+		node_strs = arch_str.split('+')
 		num_nodes = len(node_strs) + 1
+		org_end_node = len(node_strs)
 		matrix = np.zeros((num_nodes, num_nodes))
+        
+		converted_nodes = 1;
+		to_node_dict = defaultdict(list)
+		converted_ops = ['input']
+        
 		for i, node_str in enumerate(node_strs):
 			inputs = list(filter(lambda x: x != '', node_str.split('|')))
 			for xinput in inputs: assert len(xinput.split('~')) == 2, 'invalid input length : {:}'.format(xinput)
@@ -58,12 +66,29 @@ class ModelSpec(object):
 				if op not in self.search_space: raise ValueError('this op ({:}) is not in {:}'.format(op, self.search_space))
 				op_idx, node_idx = self.search_space.index(op), int(idx)
 				matrix[i+1, node_idx] = op_idx
-            indegree = np.sum(matrix[i+1])
-            num_nodes += (indegree-1)
-        
-        converted_matrix = np.zeros((num_nodes, num_nodes))
-        for i in range(1, matrix.shape[0]):
+				if op_idx != 0:
+					to_node_dict[i+1].append(converted_nodes)
+					converted_ops.append(op)
+					converted_nodes += 1
+                    
+		converted_ops.append('output')
+		converted_nodes += 1      
+		converted_end_node = converted_nodes - 1
+		converted_matrix = np.zeros((converted_nodes, converted_nodes))
+		for i in range(1, matrix.shape[0]):
+			turn = 0
+			for j in range(i):
+				if matrix[i][j] != 0:
+					for k in to_node_dict[j]:
+						converted_matrix[j][to_node_dict[i][turn]] = 1
+						converted_matrix[to_node_dict[i][turn]][j] = 1
+						turn += 1
+		for k in to_node_dict[org_end_node]:
+			converted_matrix[k][converted_end_node] = 1
+			converted_matrix[converted_end_node][k] = 1
             
+		return converted_matrix, converted_ops          
+
 
 	def _prune(self):
 		"""Prune the extraneous parts of the graph.
