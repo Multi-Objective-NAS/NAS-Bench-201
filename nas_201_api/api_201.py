@@ -92,13 +92,13 @@ class NASBench201API(NASBenchMetaAPI):
             self.arch2infos_dict[xkey] = hp2archres
         self.evaluated_indexes = sorted(list(file_path_or_dict['evaluated_indexes']))
         self.archstr2index = {}
-        self.hash2modelspec = {}
+        self.hash2archstr = {}
         for idx, arch in enumerate(self.meta_archs):
             assert arch not in self.archstr2index, 'This [{:}]-th arch {:} already in the dict ({:}).'.format(idx, arch, self.archstr2index[arch])
             self.archstr2index[ arch ] = idx
             modelspec = ModelSpec(arch, idx)
             hash_val = modelspec.hash_spec()
-            self.hash2modelspec[hash_val] = modelspec
+            self.hash2archstr[hash_val] = arch
         self.search_space = ['skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
         
         self.total_time = 0
@@ -106,7 +106,7 @@ class NASBench201API(NASBenchMetaAPI):
     
     def get_modelspec(self, matrix, ops):
         for key in self.hash_iterator():
-            arch = hash2modelspec[key]
+            arch = get_model_spec_by_hash(key)
             arch_matrix = arch.matrix.tolist()
             arch_labeling = [-1] + [self.search_space.index(op) for op in arch.ops[1:-1]] + [-2]
             graph1 = (arch_matrix, arch_labeling)
@@ -120,7 +120,7 @@ class NASBench201API(NASBenchMetaAPI):
         return False
     
     def hash_iterator(self):
-        return self.hash2modelspec.keys()
+        return hash2archstr.keys()
     
     def get_budget_counters(self):
         return self.total_time, self.total_epochs
@@ -248,7 +248,9 @@ class NASBench201API(NASBenchMetaAPI):
             return info.get_metrics(dataset, 'ori-test')['accuracy']
     
     def get_model_spec_by_hash(self, hash):
-        return self.hash2modelspec[hash]
+        archstr = hash2archstr[hash]
+        arch = ModelSpec(archstr, archstr2index[archstr])
+        return arch
     
     def show(self, index: int = -1) -> None:
         """This function will print the information of a specific (or all) architecture(s)."""
