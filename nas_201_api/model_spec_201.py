@@ -30,13 +30,10 @@ class ModelSpec(object):
         """
         self.index = index
         self.model_str = model_str
-        self.matrix, self.ops = self._convert_to_matrix_ops(model_str)
         self.valid_spec = True
         self.search_space = ['skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
-        self._prune()
-
-        self.data_format = data_format
         
+        matrix, ops = self._convert_to_matrix_ops(model_str)
         if not isinstance(matrix, np.ndarray):
             matrix = np.array(matrix)
         shape = np.shape(matrix)
@@ -44,10 +41,17 @@ class ModelSpec(object):
             raise ValueError('matrix must be square')
         if shape[0] != len(ops):
             raise ValueError('length of ops must match matrix dimensions')
-        if not is_upper_triangular(matrix):
-            raise ValueError('matrix must be upper triangular')
+        
+        self.original_matrix = copy.deepcopy(matrix)
+        self.original_ops = copy.deepcopy(ops)
+        self.matrix = copy.deepcopy(matrix)
+        self.ops = copy.deepcopy(ops)
+        
+        self._prune()
+
+        self.data_format = data_format
     
-    def convert_to_matrix_ops(arch_str):
+    def _convert_to_matrix_ops(self, arch_str):
         search_space = [ 'none', 'skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
         node_strs = arch_str.split('+')
         num_nodes = len(node_strs) + 1
@@ -91,12 +95,13 @@ class ModelSpec(object):
                         converted_matrix[k][to_node] = 1
                         converted_matrix[to_node][k] = 1
                     turn += 1
-        print(org_end_node)
         for end_node in org_end_node:         
             for k in to_node_dict[end_node]:
                 converted_matrix[k][converted_end_node] = 1
                 converted_matrix[converted_end_node][k] = 1
-
+        
+        converted_matrix = np.triu(converted_matrix, 0)
+        
         return converted_matrix, converted_ops
 
     def _prune(self):
