@@ -61,11 +61,11 @@ if __name__ == '__main__':
     
     
     parser.add_argument('-l', '--need_loss', type=bool, default=False,
-                        required=True, help='Number of archs to be saved')
+                        required=True, help='Need loss data')
     
     
     parser.add_argument('-i', '--input_pth_path', required=True,
-                        help='pth to be sampled')
+                        help='Pth to be sampled')
     
     parser.add_argument('-o', '--output_pth_path',
                         required=True, help='Output pth path')
