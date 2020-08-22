@@ -16,7 +16,7 @@ from typing import List, Text, Union, Dict, Optional
 from collections import OrderedDict, defaultdict
 
 from nasbench.lib import graph_util
-import model_spec_201 as _model_spec
+from libs.nasbench201.nas_201_api import model_spec_201 as _model_spec
 
 # Bring ModelSpec to top-level for convenience. See lib/model_spec.py.
 ModelSpec = _model_spec.ModelSpec
@@ -24,49 +24,53 @@ ModelSpec = _model_spec.ModelSpec
 
 class NASBench201API(object):
 
-    def __init__(self, file_path_or_dict: Optional[Union[Text, Dict]]=None,
+    def __init__(self, path: Optional[Union[Text, Dict]]=None,
                              verbose: bool=True):
         self.filename = None
         
         # load pth file    
-        if isinstance(file_path_or_dict, str) or isinstance(file_path_or_dict, Path):
-            file_path_or_dict = str(file_path_or_dict)
-            if verbose: print('try to create the NAS-Bench-201 api from {:}'.format(file_path_or_dict))
-            assert os.path.isfile(file_path_or_dict), 'invalid path : {:}'.format(file_path_or_dict)
+        if isinstance(path, str) or isinstance(path, Path):
+            path = str(path)
+            if verbose: print('try to create the NAS-Bench-201 api from {:}'.format(path))
+            assert os.path.isfile(path), 'invalid path : {:}'.format(path)
             
-            self.filename = Path(file_path_or_dict).name
-            file_path_or_dict = torch.load(file_path_or_dict, map_location='cpu')
+            self.filename = Path(path).name
+            path = torch.load(path, map_location='cpu')
             
-        elif isinstance(file_path_or_dict, dict):
-            file_path_or_dict = copy.deepcopy(file_path_or_dict)
+        elif isinstance(path, dict):
+            path = copy.deepcopy(path)
             
-        else: raise ValueError('invalid type : {:} not in [str, dict]'.format(type(file_path_or_dict)))
+        else: raise ValueError('invalid type : {:} not in [str, dict]'.format(type(path)))
             
-        assert isinstance(file_path_or_dict, dict), 'It should be a dict instead of {:}'.format(type(file_path_or_dict))
+        assert isinstance(path, dict), 'It should be a dict instead of {:}'.format(type(path))
         
         
         self.verbose = verbose # [TODO] a flag indicating whether to print more logs
         keys = ('meta_archs', 'arch2infos', 'evaluated_indexes')
-        for key in keys: assert key in file_path_or_dict, 'Can not find key[{:}] in the dict'.format(key)
+        for key in keys: assert key in path, 'Can not find key[{:}] in the dict'.format(key)
         
         # Data Stored in the class
-        self.meta_archs = copy.deepcopy( file_path_or_dict['meta_archs'] )
+        self.meta_archs = copy.deepcopy( path['meta_archs'] )
         self.arch2infos_dict = OrderedDict()
         self.archstr2index = {}
         self.hash2archstr = {}
         self._avaliable_hps = set(['12', '200'])
-        self.evaluated_indexes = sorted(list(file_path_or_dict['evaluated_indexes']))
+        self.evaluated_indexes = sorted(list(path['evaluated_indexes']))
         self.search_space = ['skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
         self.total_time = 0
         self.total_epochs = 0 # not implement yet
+        self.max_nodes = 0
+        self.max_edges = 0
     
-        for archidx in sorted(list(file_path_or_dict['arch2infos'].keys())):
-            self.arch2infos_dict[archidx] = file_path_or_dict['arch2infos'][archidx]
+        for archidx in sorted(list(path['arch2infos'].keys())):
+            self.arch2infos_dict[archidx] = path['arch2infos'][archidx]
         
         for idx, arch in enumerate(self.meta_archs):
             assert arch not in self.archstr2index, 'This [{:}]-th arch {:} already in the dict ({:}).'.format(idx, arch, self.archstr2index[arch])
             self.archstr2index[ arch ] = idx
             modelspec = ModelSpec(model_str=arch, index=idx)
+            self.max_nodes = max(self.max_nodes, modelspec.num_nodes)
+            self.max_edges = max(self.max_edges, modelspec.num_edges)
             hash_val = modelspec.hash_spec()
             self.hash2archstr[hash_val] = arch
     
@@ -79,6 +83,59 @@ class NASBench201API(object):
         arch = ModelSpec(model_str=archstr, index=self.archstr2index[archstr])
         return arch
         
+    def get_modelspec(self, matrix, ops):
+        model_spec = ModelSpec(matrix=matrix, ops=ops)
+        
+        hash_val = model_spec.hash_spec()
+        if hash_val not in self.hash2archstr.keys():
+            return False
+        model_str = self.hash2archstr[hash_val]
+        if model_str not in self.archstr2index.keys():
+            return False
+        index = self.archstr2index[model_str]
+        
+        model_spec.index = index
+        model_spec.model_str = model_str
+        
+        if self.is_valid(model_spec):
+            return model_spec
+        else:
+            return False
+    
+    def is_valid(self, model_spec):
+        try:
+            self._check_spec(model_spec)
+        except OutOfDomainError:
+            return False
+
+        return True
+    
+    def _check_spec(self, model_spec):
+        """Checks that the model spec is within the dataset."""
+        if not model_spec.valid_spec:
+            raise OutOfDomainError('invalid spec, provided graph is disconnected.')
+
+        num_vertices = len(model_spec.ops)
+        num_edges = np.sum(model_spec.matrix)
+
+        if num_vertices > self.max_nodes:
+            raise OutOfDomainError('too many vertices, got %d (max vertices = %d)'
+                                                         % (num_vertices, self.max_nodes))
+
+        if num_edges > self.max_edges:
+            raise OutOfDomainError('too many edges, got %d (max edges = %d)'
+                                                         % (num_edges, self.max_edges))
+
+        if model_spec.ops[0] != 'input':
+            raise OutOfDomainError('first operation should be \'input\'')
+        if model_spec.ops[-1] != 'output':
+            raise OutOfDomainError('last operation should be \'output\'')
+        for op in model_spec.ops[1:-1]:
+            if op not in self.search_space:
+                raise OutOfDomainError('unsupported op %s (available ops = %s)'
+                                                             % (op, self.search_space))
+                
+    '''
     # matrix, ops -> looking into all archs and find isomorphic network.
     def get_modelspec(self, matrix, ops):
         for key in self.hash_iterator():
@@ -90,10 +147,11 @@ class NASBench201API(object):
             labeling = [-1] + [self.search_space.index(op) for op in ops[1:-1]] + [-2]
             graph2 = (matrix.tolist(), labeling)
             
-            if is_isomorphic(graph1, graph2):
+            if np.shape(arch_matrix) == np.shape(matrix.tolist()) and graph_util.is_isomorphic(graph1, graph2):
                 return arch
         # Error
         return False
+    '''
     
     def get_budget_counters(self):
         return self.total_time, self.total_epochs

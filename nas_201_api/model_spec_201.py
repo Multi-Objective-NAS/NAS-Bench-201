@@ -14,7 +14,7 @@ except ImportError:
 class ModelSpec(object):
     """Model specification given adjacency matrix and labeling."""
     
-    def __init__(self, index, model_str, data_format='channels_last'):
+    def __init__(self, index=None, model_str=None, matrix=None, ops=None, data_format='channels_last'):
         """Initialize the module spec.
 
         Args:
@@ -33,22 +33,30 @@ class ModelSpec(object):
         self.valid_spec = True
         self.search_space = ['skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
         
-        matrix, ops = self._convert_to_matrix_ops(model_str)
         if not isinstance(matrix, np.ndarray):
-            matrix = np.array(matrix)
+            if not isinstance(matrix, list):
+                matrix, ops = self._convert_to_matrix_ops(model_str)
+            else:
+                matrix = np.array(matrix)
+
         shape = np.shape(matrix)
         if len(shape) != 2 or shape[0] != shape[1]:
             raise ValueError('matrix must be square')
         if shape[0] != len(ops):
             raise ValueError('length of ops must match matrix dimensions')
-        
+        if not is_upper_triangular(matrix):
+            raise ValueError('matrix must be upper triangular')
+                
         self.original_matrix = copy.deepcopy(matrix)
         self.original_ops = copy.deepcopy(ops)
         self.matrix = copy.deepcopy(matrix)
         self.ops = copy.deepcopy(ops)
-        
-        self._prune()
 
+        self._prune()          
+        
+        self.num_nodes = np.shape(self.matrix)[0]
+        self.num_edges = np.sum(self.matrix)
+        
         self.data_format = data_format
     
     def _convert_to_matrix_ops(self, arch_str):
@@ -168,3 +176,12 @@ class ModelSpec(object):
         # Invert the operations back to integer label indices used in graph gen.
         labeling = [-1] + [self.search_space.index(op) for op in self.ops[1:-1]] + [-2]
         return graph_util.hash_module(self.matrix, labeling)
+
+def is_upper_triangular(matrix):
+    """True if matrix is 0 on diagonal and below."""
+    for src in range(np.shape(matrix)[0]):
+        for dst in range(0, src + 1):
+            if matrix[src, dst] != 0:
+                return False
+
+    return True
