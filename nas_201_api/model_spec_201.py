@@ -2,6 +2,7 @@ import copy
 
 from nasbench.lib import graph_util
 from collections import defaultdict
+import unittest
 import numpy as np
 
 # Graphviz is optional and only required for visualization.
@@ -9,7 +10,6 @@ try:
   import graphviz   # pylint: disable=g-import-not-at-top
 except ImportError:
   pass
-
 
 class ModelSpec(object):
   """Model specification given adjacency matrix and labeling."""
@@ -29,13 +29,13 @@ class ModelSpec(object):
       ValueError: invalid matrix or ops
     """
     self.index = index
-    self.model_str = model_stru
+    self.model_str = model_str
     self.valid_spec = True
     self.search_space = ['skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
     
     if not isinstance(matrix, np.ndarray):
       if not isinstance(matrix, list):
-        matrix, ops = self._convert_to_matrix_ops(model_str)
+        matrix, ops = self._convert_to_matrix_ops(model_str) # when matrix and ops is None
       else:
         matrix = np.array(matrix)
 
@@ -64,9 +64,9 @@ class ModelSpec(object):
     node_strs = arch_str.split('+')
     num_nodes = len(node_strs) + 1
     org_end_node = []
-    matrix = np.zeros((num_nodes, num_nodes))
+    matrix = np.zeros((num_nodes, num_nodes), dtype=np.int)
 
-    converted_nodes = 1;
+    converted_nodes = 1
     to_node_dict = defaultdict(list)
     to_node_dict[0] = [0]
     converted_ops = ['input']
@@ -93,7 +93,7 @@ class ModelSpec(object):
     converted_ops.append('output')
     converted_nodes += 1    
     converted_end_node = converted_nodes - 1
-    converted_matrix = np.zeros((converted_nodes, converted_nodes))
+    converted_matrix = np.zeros((converted_nodes, converted_nodes), dtype=np.int)
     for i in range(1, matrix.shape[0]):
       turn = 0
       for j in range(i):
@@ -185,4 +185,45 @@ def is_upper_triangular(matrix):
         return False
 
   return True
-  
+
+
+class ModelSpecTest(unittest.TestCase):
+  def setUp(self):
+    self.input = ['|nor_conv_3x3~0|+|nor_conv_1x1~0|none~1|+|nor_conv_3x3~0|nor_conv_3x3~1|nor_conv_1x1~2|',\
+                  '|none~0|+|avg_pool_3x3~0|none~1|+|avg_pool_3x3~0|skip_connect~1|nor_conv_1x1~2|',\
+                  '|nor_conv_1x1~0|+|skip_connect~0|skip_connect~1|+|nor_conv_3x3~0|skip_connect~1|none~2|']
+
+    self.result_matrix = [np.array([[0, 1, 1, 1, 0, 0, 0],\
+                                    [0, 0, 0, 0, 1, 0, 0],\
+                                    [0, 0, 0, 0, 0, 1, 0],\
+                                    [0, 0, 0, 0, 0, 0, 1],\
+                                    [0, 0, 0, 0, 0, 0, 1],\
+                                    [0, 0, 0, 0, 0, 0, 1],\
+                                    [0, 0, 0, 0, 0, 0, 0]]),\
+                          np.array([[0, 1, 1, 1, 0, 0],\
+                                    [0, 0, 0, 0, 1, 0],\
+                                    [0, 0, 0, 0, 0, 1],\
+                                    [0, 0, 0, 0, 0, 1],\
+                                    [0, 0, 0, 0, 0, 1],\
+                                    [0, 0, 0, 0, 0, 0]]),\
+                          np.array([[0, 1, 1, 0, 1, 0, 0],\
+                                    [0, 0, 0, 1, 0, 1, 0],\
+                                    [0, 0, 0, 0, 0, 0, 1],\
+                                    [0, 0, 0, 0, 0, 0, 1],\
+                                    [0, 0, 0, 0, 0, 0, 1],\
+                                    [0, 0, 0, 0, 0, 0, 1],\
+                                    [0, 0, 0, 0, 0, 0, 0]])]
+
+    self.result_ops = [ ['input', 'nor_conv_3x3', 'nor_conv_1x1', 'nor_conv_3x3', 'nor_conv_3x3', 'nor_conv_1x1', 'output'],\
+                        ['input', 'avg_pool_3x3', 'avg_pool_3x3', 'skip_connect', 'nor_conv_1x1', 'output'],\
+                        ['input', 'nor_conv_1x1', 'skip_connect', 'skip_connect', 'nor_conv_3x3', 'skip_connect', 'output'] ]
+
+  def test_convert_matrix(self):
+    for idx, input in enumerate(self.input):
+      m = ModelSpec(index=0, model_str=input)
+      np.testing.assert_array_equal(m.matrix, self.result_matrix[idx])
+      self.assertListEqual(m.ops, self.result_ops[idx])
+
+
+if __name__ == '__main__':
+  unittest.main()
