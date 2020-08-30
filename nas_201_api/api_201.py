@@ -26,32 +26,30 @@ class NASBench201API(object):
 
     def __init__(self, path: Optional[Union[Text, Dict]]=None,
                              verbose: bool=True):
-        self.filename = None
-        
         # load pth file    
         if isinstance(path, str) or isinstance(path, Path):
             path = str(path)
             if verbose: print('try to create the NAS-Bench-201 api from {:}'.format(path))
             assert os.path.isfile(path), 'invalid path : {:}'.format(path)
             
-            self.filename = Path(path).name
             path = torch.load(path, map_location='cpu')
             
         elif isinstance(path, dict):
             path = copy.deepcopy(path)
             
-        else: raise ValueError('invalid type : {:} not in [str, dict]'.format(type(path)))
-            
+        else:
+            raise ValueError('invalid type : {:} not in [str, dict]'.format(type(path)))
+        
         assert isinstance(path, dict), 'It should be a dict instead of {:}'.format(type(path))
         
         
-        self.verbose = verbose # [TODO] a flag indicating whether to print more logs
         keys = ('meta_archs', 'arch2infos', 'evaluated_indexes')
-        for key in keys: assert key in path, 'Can not find key[{:}] in the dict'.format(key)
+        for key in keys:
+            assert key in path, 'Can not find key[{:}] in the dict'.format(key)
         
         # Data Stored in the class
         self.meta_archs = copy.deepcopy( path['meta_archs'] )
-        self.arch2infos_dict = OrderedDict()
+        self.arch2infos_dict = {}
         self.archstr2index = {}
         self.hash2archstr = {}
         self._avaliable_hps = set(['12', '200'])
@@ -59,20 +57,21 @@ class NASBench201API(object):
         self.search_space = ['skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
         self.total_time = 0
         self.total_epochs = 0 # not implement yet
-        self.max_nodes = 0
-        self.max_edges = 0
     
-        for archidx in sorted(list(path['arch2infos'].keys())):
+        for archidx in list(path['arch2infos'].keys()):
             self.arch2infos_dict[archidx] = path['arch2infos'][archidx]
         
         for idx, arch in enumerate(self.meta_archs):
             assert arch not in self.archstr2index, 'This [{:}]-th arch {:} already in the dict ({:}).'.format(idx, arch, self.archstr2index[arch])
             self.archstr2index[ arch ] = idx
             modelspec = ModelSpec(model_str=arch, index=idx)
-            self.max_nodes = max(self.max_nodes, modelspec.num_nodes)
-            self.max_edges = max(self.max_edges, modelspec.num_edges)
+            max_nodes = max(max_nodes, modelspec.num_nodes)
+            max_edges = max(max_edges, modelspec.num_edges)
             hash_val = modelspec.hash_spec()
             self.hash2archstr[hash_val] = arch
+
+        self.max_edges = max_edges
+        self.max_nodes = max_nodes
     
     def hash_iterator(self):
         return self.hash2archstr.keys()
@@ -97,10 +96,7 @@ class NASBench201API(object):
         model_spec.index = index
         model_spec.model_str = model_str
         
-        if self.is_valid(model_spec):
-            return model_spec
-        else:
-            return False
+        return model_spec
     
     def is_valid(self, model_spec):
         try:
@@ -135,36 +131,20 @@ class NASBench201API(object):
                 raise OutOfDomainError('unsupported op %s (available ops = %s)'
                                                              % (op, self.search_space))
                 
-    '''
-    # matrix, ops -> looking into all archs and find isomorphic network.
-    def get_modelspec(self, matrix, ops):
-        for key in self.hash_iterator():
-            arch = self.get_model_spec_by_hash(key)
-            arch_matrix = arch.matrix.tolist()
-            arch_labeling = [-1] + [self.search_space.index(op) for op in arch.ops[1:-1]] + [-2]
-            graph1 = (arch_matrix, arch_labeling)
-            
-            labeling = [-1] + [self.search_space.index(op) for op in ops[1:-1]] + [-2]
-            graph2 = (matrix.tolist(), labeling)
-            
-            if np.shape(arch_matrix) == np.shape(matrix.tolist()) and graph_util.is_isomorphic(graph1, graph2):
-                return arch
-        # Error
-        return False
-    '''
-    
     def get_budget_counters(self):
         return self.total_time, self.total_epochs
     
-    """
-    dataset         :  train, validation, test
-    
-    [cifar10-valid] : 'train', 'x-valid', 'ori-test'
-    [cifar10]       : 'train'(train+val), 'ori-test'
-    [cifar100
-    ImageNet16-120] : 'train', 'x-valid', 'x-test', 'ori-test'(val+test)
-    """
-    def query_option(self, modelspec, option, dataset='cifar10-valid'):
+    def query(self, modelspec, option, dataset='cifar10-valid'):
+        """
+        dataset         :  train, validation, test
+        
+        [cifar10-valid] : 'train', 'x-valid', 'ori-test'
+        [cifar10]       : 'train'(train+val), 'ori-test'
+        [cifar100
+        ImageNet16-120] : 'train', 'x-valid', 'x-test', 'ori-test'(val+test)
+        """
+        assert option == 'valid' or option == 'test'
+
         if option == 'valid':
             archresult = self.arch2infos_dict[modelspec.index]['less']['all_results']
             seeds = self.arch2infos_dict[modelspec.index]['less']['dataset_seed'][dataset]

@@ -5,12 +5,6 @@ from collections import defaultdict
 import unittest
 import numpy as np
 
-# Graphviz is optional and only required for visualization.
-try:
-  import graphviz   # pylint: disable=g-import-not-at-top
-except ImportError:
-  pass
-
 class ModelSpec(object):
   """Model specification given adjacency matrix and labeling."""
   
