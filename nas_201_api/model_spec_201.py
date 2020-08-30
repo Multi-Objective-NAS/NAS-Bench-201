@@ -5,6 +5,12 @@ from collections import defaultdict
 import unittest
 import numpy as np
 
+# Graphviz is optional and only required for visualization.
+try:
+  import graphviz   # pylint: disable=g-import-not-at-top
+except ImportError:
+  pass
+
 class ModelSpec(object):
   """Model specification given adjacency matrix and labeling."""
   
@@ -25,7 +31,6 @@ class ModelSpec(object):
     self.index = index
     self.model_str = model_str
     self.valid_spec = True
-    self.search_space = ['skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
     
     if not isinstance(matrix, np.ndarray):
       if not isinstance(matrix, list):
@@ -54,6 +59,7 @@ class ModelSpec(object):
     self.data_format = data_format
   
   def _convert_to_matrix_ops(self, arch_str):
+    # only for nasbench 201
     search_space = [ 'none', 'skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
     node_strs = arch_str.split('+')
     num_nodes = len(node_strs) + 1
@@ -70,7 +76,7 @@ class ModelSpec(object):
       for xinput in inputs: assert len(xinput.split('~')) == 2, 'invalid input length : {:}'.format(xinput)
       for xi in inputs:
         op, idx = xi.split('~')
-        if op not in search_space: raise ValueError('this op ({:}) is not in {:}'.format(op, self.search_space))
+        if op not in search_space: raise ValueError('this op ({:}) is not in {:}'.format(op, search_space))
         op_idx, node_idx = search_space.index(op), int(idx)
         matrix[i+1, node_idx] = op_idx
         if op_idx != 0:
@@ -157,7 +163,7 @@ class ModelSpec(object):
     for index in sorted(extraneous, reverse=True):
       del self.ops[index]
 
-  def hash_spec(self):
+  def hash_spec(self, canonical_ops):
     """Computes the isomorphism-invariant graph hash of this spec.
 
     Args:
@@ -168,8 +174,25 @@ class ModelSpec(object):
       MD5 hash of this spec which can be used to query the dataset.
     """
     # Invert the operations back to integer label indices used in graph gen.
-    labeling = [-1] + [self.search_space.index(op) for op in self.ops[1:-1]] + [-2]
+    labeling = [-1] + [canonical_ops.index(op) for op in self.ops[1:-1]] + [-2]
     return graph_util.hash_module(self.matrix, labeling)
+
+  def visualize(self):
+    """Creates a dot graph. Can be visualized in colab directly."""
+    num_vertices = np.shape(self.matrix)[0]
+    g = graphviz.Digraph()
+    g.node(str(0), 'input')
+    for v in range(1, num_vertices - 1):
+      g.node(str(v), self.ops[v])
+    g.node(str(num_vertices - 1), 'output')
+
+    for src in range(num_vertices - 1):
+      for dst in range(src + 1, num_vertices):
+        if self.matrix[src, dst]:
+          g.edge(str(src), str(dst))
+
+    return g
+
 
 def is_upper_triangular(matrix):
   """True if matrix is 0 on diagonal and below."""

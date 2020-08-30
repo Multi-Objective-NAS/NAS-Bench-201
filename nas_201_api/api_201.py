@@ -67,7 +67,7 @@ class NASBench201API(object):
             modelspec = ModelSpec(model_str=arch, index=idx)
             max_nodes = max(max_nodes, modelspec.num_nodes)
             max_edges = max(max_edges, modelspec.num_edges)
-            hash_val = modelspec.hash_spec()
+            hash_val = modelspec.hash_spec(self.search_space)
             self.hash2archstr[hash_val] = arch
 
         self.max_edges = max_edges
