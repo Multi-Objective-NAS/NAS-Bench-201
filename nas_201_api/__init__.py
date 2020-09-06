@@ -2,6 +2,7 @@
 # Copyright (c) Xuanyi Dong [GitHub D-X-Y], 2019.08 #
 #####################################################
 from .api_utils import ArchResults, ResultsCount
+from .model_spec import ModelSpec
 from .api_201 import NASBench201API
 from .api_301 import NASBench301API
 

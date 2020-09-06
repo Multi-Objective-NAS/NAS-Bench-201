@@ -16,7 +16,7 @@ from typing import List, Text, Union, Dict, Optional
 from collections import OrderedDict, defaultdict
 
 from nasbench.lib import graph_util
-from libs.nasbench201.nas_201_api import model_spec_201 as _model_spec
+from nas_201_api import model_spec as _model_spec
 
 # Bring ModelSpec to top-level for convenience. See lib/model_spec.py.
 ModelSpec = _model_spec.ModelSpec
@@ -26,90 +26,93 @@ class NASBench201API(object):
 
     def __init__(self, path: Optional[Union[Text, Dict]]=None,
                              verbose: bool=True):
+        """Initialize dataset."""
         # load pth file    
         if isinstance(path, str) or isinstance(path, Path):
             path = str(path)
             if verbose: print('try to create the NAS-Bench-201 api from {:}'.format(path))
             assert os.path.isfile(path), 'invalid path : {:}'.format(path)
             
-            path = torch.load(path, map_location='cpu')
-            
+            path = torch.load(path, map_location='cpu')  
         elif isinstance(path, dict):
-            path = copy.deepcopy(path)
-            
+            path = copy.deepcopy(path)            
         else:
             raise ValueError('invalid type : {:} not in [str, dict]'.format(type(path)))
-        
         assert isinstance(path, dict), 'It should be a dict instead of {:}'.format(type(path))
-        
-        
+                
         keys = ('meta_archs', 'arch2infos', 'evaluated_indexes')
         for key in keys:
             assert key in path, 'Can not find key[{:}] in the dict'.format(key)
         
-        # Data Stored in the class
+        # Stores the list of arch_str.
+        # ex)'|avg_pool_3x3~0|+|nor_conv_1x1~0|skip_connect~1|+|nor_conv_1x1~0|skip_connect~1|skip_connect~2|'
         self.meta_archs = copy.deepcopy( path['meta_archs'] )
-        self.arch2infos_dict = {}
-        self.archstr2index = {}
+
+        # Stores the statistics that are computed via training and evaluating the
+        # model on cifar10, cifar100, ImageNet16. Statistics are computed for multiple repeats of each
+        # model at each max epoch length.
+        # hash --> hps --> all_results --> (data name, seed) --> metric name --> scalar
+        self.hash2results = {}
+
+        # Stores architecture string
+        # cf)   matrix, ops -> modelspec                     -> hash --> hash2archstr -> get arch str 
+        # cf)   arch str    -> modelspec(get matrix and ops) -> hash --> hash2results -> get statistics
         self.hash2archstr = {}
+
         self._avaliable_hps = set(['12', '200'])
+        self._avaliable_epochkeys = ['less', 'full']
+        self._avaliable_datasets = ['cifar10-valid', 'cifar10', 'cifar100', 'ImageNet16-120']
         self.evaluated_indexes = sorted(list(path['evaluated_indexes']))
         self.search_space = ['skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
         self.total_time = 0
         self.total_epochs = 0 # not implement yet
     
-        for archidx in list(path['arch2infos'].keys()):
-            self.arch2infos_dict[archidx] = path['arch2infos'][archidx]
-        
-        for idx, arch in enumerate(self.meta_archs):
-            assert arch not in self.archstr2index, 'This [{:}]-th arch {:} already in the dict ({:}).'.format(idx, arch, self.archstr2index[arch])
-            self.archstr2index[ arch ] = idx
-            modelspec = ModelSpec(model_str=arch, index=idx)
+        for archidx in sorted(list(path['arch2infos'].keys())):
+            arch_str = path['arch2infos'][archidx]['full']['arch_str']
+            assert arch_str in self.meta_archs, 'This [{:}]-th arch not in the meta_archs. This arch is {:}.'.format(archidx, arch_str)
+            assert arch_str == path['arch2infos'][archidx]['less']['arch_str'], "Not match 'less' and 'full' arch_str"
+
+            modelspec = ModelSpec(model_str=arch_str)
             max_nodes = max(max_nodes, modelspec.num_nodes)
             max_edges = max(max_edges, modelspec.num_edges)
             hash_val = modelspec.hash_spec(self.search_space)
-            self.hash2archstr[hash_val] = arch
+            self.hash2results[hash_val] = path['arch2infos'][archidx]
+            self.hash2archstr[hash_val] = arch_str
 
         self.max_edges = max_edges
         self.max_nodes = max_nodes
     
     def hash_iterator(self):
+        """Returns iterator over all unique model hashes."""
         return self.hash2archstr.keys()
     
-    # hash -> ModelSpec (idx, str, matrix, ops)
-    def get_model_spec_by_hash(self, hash):
-        archstr = self.hash2archstr[hash]
-        arch = ModelSpec(model_str=archstr, index=self.archstr2index[archstr])
+    def get_modelspec_by_hash(self, hash_val):
+        """Return modelspec by hash value"""
+        archstr = self.hash2archstr[hash_val]
+        arch = ModelSpec(model_str=archstr)
         return arch
-        
+
     def get_modelspec(self, matrix, ops):
-        model_spec = ModelSpec(matrix=matrix, ops=ops)
-        
-        hash_val = model_spec.hash_spec()
-        if hash_val not in self.hash2archstr.keys():
-            return False
-        model_str = self.hash2archstr[hash_val]
-        if model_str not in self.archstr2index.keys():
-            return False
-        index = self.archstr2index[model_str]
-        
-        model_spec.index = index
-        model_spec.model_str = model_str
-        
-        return model_spec
+        """Return model spec."""        
+        return ModelSpec(matrix=matrix, ops=ops)
     
     def is_valid(self, model_spec):
+        """Checks the validity of the model_spec."""
         try:
             self._check_spec(model_spec)
         except OutOfDomainError:
             return False
-
+        
         return True
     
     def _check_spec(self, model_spec):
         """Checks that the model spec is within the dataset."""
         if not model_spec.valid_spec:
             raise OutOfDomainError('invalid spec, provided graph is disconnected.')
+        
+        model_hash = model_spec.hash_val(self.search_space)
+        if model_hash not in hash2results.keys():
+            raise OutOfDomainError('unsupported model hash %s ' % (model_hash))
 
         num_vertices = len(model_spec.ops)
         num_edges = np.sum(model_spec.matrix)
@@ -132,41 +135,50 @@ class NASBench201API(object):
                                                              % (op, self.search_space))
                 
     def get_budget_counters(self):
+        """Returns the time and budget counters."""
         return self.total_time, self.total_epochs
     
-    def query(self, modelspec, option, dataset='cifar10-valid'):
-        """
-        dataset         :  train, validation, test
+    def query(self, modelspec, option, dataset='cifar10-valid', epochs='less'):
+        """Fetch one of the evaluations for this model spec
+        * option == 'valid'
+        Fetch one of the evaluations for this model spec.
+        sample one of the config['num_repeats'] evaluations of the model.
+        increment the budget counters for benchmarking purposes.
         
+        * option == 'test'
+        Returns the average metrics of all repeats of this model spec.
+        not be used for benchmarking. so not increment any of the budget counters.
+        
+        dataset            train, validation, test   
+        ---------------------------------------------------------------------     
         [cifar10-valid] : 'train', 'x-valid', 'ori-test'
         [cifar10]       : 'train'(train+val), 'ori-test'
-        [cifar100
+        [cifar100,
         ImageNet16-120] : 'train', 'x-valid', 'x-test', 'ori-test'(val+test)
+
+        Raises error:
+            invalid option, dataset, epochs
         """
         assert option == 'valid' or option == 'test'
+        assert dataset in self._avaliable_datasets
+        assert epochs in self._avaliable_epochkeys
 
         if option == 'valid':
-            archresult = self.arch2infos_dict[modelspec.index]['less']['all_results']
-            seeds = self.arch2infos_dict[modelspec.index]['less']['dataset_seed'][dataset]
+            model_hash = modelspec.hash_spec(self.search_space)
+            archresult = self.hash2results[model_hash][epochs]['all_results']
+            seeds = self.hash2results[model_hash][epochs]['dataset_seed'][dataset]
             picked_seed = random.choice(seeds)
-            
             info = archresult[(dataset, picked_seed)]
-            
             eval_name = [n for n in info['eval_names'] if 'valid' in n][0]
             self.total_time += (info['train_times'] + info['eval_times'][eval_name])
-            
-            return info['eval_acc1es'][eval_name]
-        
+            return info['eval_acc1es'][eval_name]        
         elif option == 'test':
-            archresult = self.arch2infos_dict[modelspec.index]['less']['all_results']
-            seeds = self.arch2infos_dict[modelspec.index]['less']['dataset_seed'][dataset]
+            archresult = self.hash2results[model_hash][epochs]['all_results']
+            seeds = self.hash2results[model_hash][epochs]['dataset_seed'][dataset]
             avg_test_acc = 0
-            
             for seed in seeds:
                 info = archresult[(dataset, seed)]
                 test_name = [n for n in info['eval_names'] if 'test' in n][0]
                 avg_test_acc += info['eval_acc1es'][test_name]
-                
-            avg_test_acc /= len(seeds)
-            
+            avg_test_acc /= len(seeds)            
             return avg_test_acc
