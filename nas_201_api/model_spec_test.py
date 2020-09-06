@@ -1,4 +1,5 @@
 import numpy as np
+import unittest
 from nas_201_api import model_spec as _model_spec
 ModelSpec = _model_spec.ModelSpec
 
@@ -35,7 +36,7 @@ class ModelSpecTest(unittest.TestCase):
 
   def test_convert_matrix(self):
     for idx, input in enumerate(self.input):
-      m = ModelSpec(index=0, model_str=input)
+      m = ModelSpec(model_str=input)
       np.testing.assert_array_equal(m.matrix, self.result_matrix[idx])
       self.assertListEqual(m.ops, self.result_ops[idx])
 

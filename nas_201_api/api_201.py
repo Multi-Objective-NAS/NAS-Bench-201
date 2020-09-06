@@ -66,7 +66,9 @@ class NASBench201API(object):
         self.search_space = ['skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
         self.total_time = 0
         self.total_epochs = 0 # not implement yet
-    
+
+        max_nodes=0
+        max_edges=0
         for archidx in sorted(list(path['arch2infos'].keys())):
             arch_str = path['arch2infos'][archidx]['full']['arch_str']
             assert arch_str in self.meta_archs, 'This [{:}]-th arch not in the meta_archs. This arch is {:}.'.format(archidx, arch_str)
@@ -110,8 +112,8 @@ class NASBench201API(object):
         if not model_spec.valid_spec:
             raise OutOfDomainError('invalid spec, provided graph is disconnected.')
         
-        model_hash = model_spec.hash_val(self.search_space)
-        if model_hash not in hash2results.keys():
+        model_hash = model_spec.hash_spec(self.search_space)
+        if model_hash not in self.hash2results.keys():
             raise OutOfDomainError('unsupported model hash %s ' % (model_hash))
 
         num_vertices = len(model_spec.ops)
