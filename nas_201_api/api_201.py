@@ -21,6 +21,8 @@ from nas_201_api import model_spec as _model_spec
 # Bring ModelSpec to top-level for convenience. See lib/model_spec.py.
 ModelSpec = _model_spec.ModelSpec
 
+class OutOfDomainError(Exception):
+  """Indicates that the requested graph is outside of the search domain."""
 
 class NASBench201API(object):
 
