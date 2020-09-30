@@ -193,6 +193,9 @@ class ModelSpec(object):
 
     return g
 
+  def __eq__(self, other):
+    return self.matrix == other.matrix and self.ops == other.ops
+
 
 def is_upper_triangular(matrix):
   """True if matrix is 0 on diagonal and below."""
