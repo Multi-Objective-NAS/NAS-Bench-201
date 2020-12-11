@@ -94,10 +94,10 @@ class ModelSpec(object):
             for j in range(i): # iterate in-degree
                 if matrix[i][j] != 0:
                     to_node = to_node_dict[i][turn]
-                for k in to_node_dict[j]:
-                    converted_matrix[k][to_node] = 1
-                    converted_matrix[to_node][k] = 1
-                turn += 1
+                    for k in to_node_dict[j]:
+                        converted_matrix[k][to_node] = 1
+                        converted_matrix[to_node][k] = 1
+                    turn += 1
         for end_node in org_end_node:     
             for k in to_node_dict[end_node]:
                 converted_matrix[k][converted_end_node] = 1
@@ -170,7 +170,7 @@ class ModelSpec(object):
         if self.hash_val is None:
             # Invert the operations back to integer label indices used in graph gen.
             labeling = [-1] + [canonical_ops.index(op) for op in self.ops[1:-1]] + [-2]
-            self.hash_val = graph.hash_module(self.matrix, labeling)
+            self.hash_val = graph_util.hash_module(self.matrix, labeling)
         return self.hash_val
 
     def visualize(self):

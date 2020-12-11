@@ -61,7 +61,7 @@ class NASBench201API(object):
         # cf)   arch str    -> modelspec(get matrix and ops) -> hash --> hash2results -> get statistics
         self.hash2infos = path['arch2infos']
 
-        self._avaliable_epochs = ['less': 20, 'full': 200]
+        self._avaliable_epochs = {'less': 20, 'full': 200}
         self._avaliable_datasets = ['cifar10-valid', 'cifar10', 'cifar100', 'ImageNet16-120']
         self.allhashvalues = list(path['arch2infos'].keys())
         self.search_space = ['skip_connect', 'nor_conv_1x1', 'nor_conv_3x3', 'avg_pool_3x3']
