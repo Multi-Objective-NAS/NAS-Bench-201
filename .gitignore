@@ -100,3 +100,6 @@ main_main.py
 dist
 build
 *.egg-info
+
+NasBench201.ipynb
+Reduce_NAS_201.ipynb
